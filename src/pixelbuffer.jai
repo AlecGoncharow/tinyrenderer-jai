@@ -7,9 +7,9 @@ gc: GC;
 ximage: *XImage;
 xwa: XWindowAttributes;
 xshminfo: XShmSegmentInfo;
-width: u32;
-height: u32;
-pixels_len: u32;
+width: s32;
+height: s32;
+pixels_len: s32;
 visual: *Visual;
 depth: s32;
 
@@ -29,7 +29,7 @@ create_pixel_buffer :: () -> *u8 {
     display,
     visual,
     xx depth,
-    2, // ZPixmap
+    2, // ZPixmap format
     null, // Data
     *xshminfo,
     xx width,
