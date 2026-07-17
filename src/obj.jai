@@ -2,11 +2,11 @@
 #import "String";
 
 Model :: struct {
-  verts:  [..] Math.Vector4;
+  verts:  [..] Math.Vector3;
   faces:  [..] s32;
 }
 
-vert :: (m: *Model, face: s32, nvert: s32) -> *Math.Vector4 {
+vert :: (m: *Model, face: s32, nvert: s32) -> *Math.Vector3 {
   return *m.verts[m.faces[(face*3)+nvert]];
 }
 
@@ -18,8 +18,10 @@ load_obj_from_file :: (filename: string, model: *Model) {
   }
 
   s, okay2 := read_entire_file(f);
+  defer free(s);
   if (!okay2) {
     log_error("failed to read file %!\n", filename);
+    return;
   }
 
   lines := split(s, "\n");
@@ -28,6 +30,7 @@ load_obj_from_file :: (filename: string, model: *Model) {
     if begins_with(it, "v ") {
       // parse vert
       floats := split(slice(it, 2, it.count - 2), " ");
+      defer array_free(floats);
       x, okx := parse_float(*floats[0]);
       y, oky := parse_float(*floats[1]);
       z, okz := parse_float(*floats[2]);
@@ -37,13 +40,13 @@ load_obj_from_file :: (filename: string, model: *Model) {
         return;
       }
 
-      r: Math.Vector4 = ---;
+      r: Math.Vector3 = ---;
       r.x = x;
       r.y = y;
       r.z = z;
-      r.w = 1.0;
 
       array_add(*model.verts, r);
+
 
       continue;
     }
@@ -57,12 +60,24 @@ load_obj_from_file :: (filename: string, model: *Model) {
         array_add(*model.faces, cast(s32) idx - 1);
       }
 
+      array_free(groups);
+
       continue;
     }
   }
 
   if DEBUG {
-    print("% %", model.verts.count, model.faces.count);
+    print("% parsed: % verts % faces\n", filename, model.verts.count, model.faces.count);
+  }
+}
+
+
+rotate_model_in_place :: (model: *Model, theta: float) {
+  q: Math.Quaternion;
+  Math.set_from_axis_and_angle(*q, .{0, 1, 0}, theta);
+
+  for model.verts{
+    Math.rotate(*it, q);
   }
 }
 

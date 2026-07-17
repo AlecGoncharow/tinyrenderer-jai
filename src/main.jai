@@ -6,14 +6,20 @@ using Random :: #import "Random";
 #load "pixelbuffer.jai";
 #load "obj.jai";
 
-virtual_width: s32 = 1000;
-virtual_height: s32 = 1000;
-scale: s32 = 1;
+virtual_width: s32 = 100;
+virtual_height: s32 = 100;
+scale: s32 = 8;
 depth_buffer: [..] u8;
 
 clear :: (pixel_buffer: *u32, clear_color: u32) {
   for i: 0..pixels_len - 1 {
     pixel_buffer[i] = clear_color;
+  }
+}
+
+clear :: (depth_buffer: [..]u8) {
+  for i: 0..depth_buffer.count - 1 {
+    depth_buffer[i] = 0;
   }
 }
 
@@ -73,7 +79,7 @@ screen_clamp :: (x: s32, y: s32) -> s32, s32{
   return clamp(x, 0, virtual_width - 1), clamp(y, 0, virtual_height - 1);
 }
 
-project :: (v: *Math.Vector4) -> s32, s32, s32 {
+project :: (v: *Math.Vector3) -> s32, s32, s32 {
   return cast(s32) ((v.x + 1.0) * virtual_width / 2.0), cast(s32)((v.y + 1.0) * virtual_height / 2.0),  cast(s32)((v.z + 1.) *   255./2);
 }
 
@@ -87,7 +93,7 @@ scale_color :: (color: u32, scale: float64) -> u32 {
 
 DEBUG       :: true;
 BB_DEBUG    :: false;
-DEBUG_DEPTH :: false;
+DEBUG_DEPTH :: true;
 
 //byte order :: nil Red Green Blue
 BLACK     :: 0x00000000;
@@ -147,6 +153,9 @@ wireframe_triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, ac: u32, bx: s32, b
   line(pixel_buffer, bx, by, bc, cx, cy, cc);
   line(pixel_buffer, cx, cy, cc, ax, ay, ac);
 }
+triangle :: (pixel_buffer: *u32, p1: Math.Vector3, p2: Math.Vector3, p3: Math.Vector3, color: u32) {
+  triangle(pixel_buffer, xx p1.x,xx p1.y,xx p1.z,xx p2.x,xx p2.y,xx p2.z,xx p3.x,xx p3.y,xx p3.z, color);
+}
 
 triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, az: s32, bx: s32, by: s32, bz: s32, cx: s32, cy: s32, cz: s32, color: u32) {
   signed_triangle_area :: (ax: s32, ay: s32, bx: s32, by: s32, cx: s32, cy: s32) -> float64 {
@@ -193,8 +202,16 @@ triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, az: s32, bx: s32, by: s32, bz
   }
 }
 
+Point :: struct {
+  x,y,z: s32;
+}
+
+ENABLE_PROFILING :: true;
+#import "Basic"()(MEMORY_DEBUGGER=true, VISUALIZE_MEMORY_DEBUGGER=true);
 
 main :: () {
+  #if ENABLE_PROFILING trace_init("trace.json");
+  defer #if ENABLE_PROFILING trace_shutdown();
   width  = xx(virtual_width * scale);
   height = xx(virtual_height * scale);
   pixels_len = width * height;
@@ -202,26 +219,28 @@ main :: () {
 
 
   window = create_window(width, height, "[floating] Software Renderer");
+  // @TODO would be nice to make this portable eventually, which probably means
+  // also not directly editing the pixel buffer like it's a simple array, since
+  // the color format can changeo or whatever.
   pixel_buffer := cast(*u32) create_pixel_buffer();
-  sleep_milliseconds(16); // Target ~60 fps
   clear(pixel_buffer, BLACK);
 
   model: Model;
   // load_obj_from_file("./obj/head/head.obj", *model);
   load_obj_from_file("./obj/diablo_pose.obj", *model);
-  render_model(pixel_buffer, *model);
-
-  // ax := 17; ay :=  4; az := RED;
-  // bx := 55; by := 39; bz := GREEN;
-  // cx := 23; cy := 59; cz := BLUE;
-
-  // triangle(pixel_buffer, xx ax,xx ay,xx az,xx bx,xx by,xx bz,xx cx,xx cy,xx cz);
-  // wireframe_triangle(pixel_buffer, xx ax,xx bx,xx az,xx bx,xx cx,xx bz,xx cy,xx cy,xx cz);
-
   // Main Loop
   should_quit := false;
   oscillate: u32 = 0;
+
+  p1, p2, p3 := Math.Vector3.{-0.5, -0.5, 1}, Math.Vector3.{1.0, 1.0, 1}, Math.Vector3.{.5, -0.5, 1};
+
+  q: Math.Quaternion;
+  Math.set_from_axis_and_angle(*q, .{0, 0, 1}, Math.PI / 30);
+  tmatrix := Math.make_translation_matrix4(Math.Vector3.{30, 30, 0});
+
   while !should_quit {
+    #if ENABLE_PROFILING memory_visualizer_per_frame_update();
+    profile_scope("Frame");
     Input.update_window_events();
     for Input.events_this_frame {
       if it.type == {
@@ -236,7 +255,18 @@ main :: () {
           }
       }
     }
+
+    clear(pixel_buffer, BLACK);
+    clear(depth_buffer);
+    render_model(pixel_buffer, *model);
+    // triangle(pixel_buffer, Math.translate(tmatrix, p3), GREEN);
+
+    // Math.rotate(*p1, q);
+    // Math.rotate(*p2, q);
+    // Math.rotate(*p3, q);
+
     flush();
+     rotate_model_in_place(*model, Math.PI / 30);
 
     reset_temporary_storage();
     sleep_milliseconds(16); // Target ~60 fps
@@ -244,4 +274,46 @@ main :: () {
   }
 
   cleanup();
+}
+
+trace_file: File;
+trace_initialized := false;
+trace_is_first := true;
+
+trace_init :: (filename: string) -> bool {
+  f, success := file_open(filename, for_writing=true, keep_existing_content=false);
+  if !success {
+    log_error("Failed to open trace file: %\n", filename);
+    return false;
+  }
+  trace_file = f;
+  trace_initialized = true;
+  file_write(*trace_file, "[\n");
+  return true;
+}
+
+trace_shutdown :: () {
+  if !trace_initialized return;
+  file_write(*trace_file, "\n]\n");
+  file_close(*trace_file);
+  trace_initialized = false;
+}
+
+trace_write_event :: (name: string, phase: string, timestamp: Apollo_Time) {
+  if !trace_initialized return;
+
+  us_time, success := to_microseconds(timestamp);
+
+  comma := ifx trace_is_first then "  " else ",\n  ";
+  trace_is_first = false;
+
+  event_str := tprint("%{\"name\": \"%\", \"ph\": \"%\", \"ts\": %, \"pid\": 1, \"tid\": 1}", comma, name, phase, us_time);
+  file_write(*trace_file, event_str);
+}
+
+profile_scope :: (name: string) #expand {
+  #if ENABLE_PROFILING {
+    trace_write_event(name, "B", current_time_monotonic());
+    `defer trace_write_event(name, "E", current_time_monotonic());
+  }
 }
