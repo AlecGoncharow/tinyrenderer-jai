@@ -60,4 +60,20 @@ load_obj_from_file :: (filename: string, model: *Model) {
       continue;
     }
   }
+
+  if DEBUG {
+    print("% %", model.verts.count, model.faces.count);
+  }
+}
+
+render_model :: (pixel_buffer: *u32, model: *Model) {
+  nfaces : s32 = cast(s32) model.faces.count / 3;
+  for 0..nfaces-1{
+    ax, ay, az := project(vert(model, it, 0));
+    bx, by, bz := project(vert(model, it, 1));
+    cx, cy, cz := project(vert(model, it, 2));
+
+
+    triangle(pixel_buffer, ax, ay, az, bx, by, bz, cx, cy, cz, cast(u32) (Random.random_get() >> 32));
+  }
 }
