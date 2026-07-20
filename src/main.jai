@@ -6,14 +6,15 @@ using Random :: #import "Random";
 #load "pixelbuffer.jai";
 #load "obj.jai";
 
-virtual_width: s32 = 100;
-virtual_height: s32 = 100;
-scale: s32 = 8;
+virtual_width: s32 = 1000;
+virtual_height: s32 = 1000;
+virtual_buffer: [..]u32;
+scale: s32 = 1;
 depth_buffer: [..] u8;
 
-clear :: (pixel_buffer: *u32, clear_color: u32) {
-  for i: 0..pixels_len - 1 {
-    pixel_buffer[i] = clear_color;
+clear :: (virtual_buffer: [..]u32, clear_color: u32) {
+  for i: 0..virtual_buffer.count - 1 {
+    virtual_buffer[i] = clear_color;
   }
 }
 
@@ -35,21 +36,30 @@ set_depth:: (buffer: [..]u8, x: s32, y: s32, depth: u8) {
   buffer[y*virtual_width + x] = depth;
 }
 
-set :: (pixel_buffer: *u32, x: s32, y: s32, color: u32) {
-  set_raw(pixel_buffer, x, virtual_height - (y+1), color);
+set :: (virtual_buffer: [..]u32, x: s32, y: s32, color: u32) {
+  set_raw(virtual_buffer, x, virtual_height - (y+1), color);
 }
 
-set_raw :: (pixel_buffer: *u32, vx: s32, vy: s32, color: u32) {
+set_raw :: (virtual_buffer: [..]u32, vx: s32, vy: s32, color: u32) {
   if (vx < 0 || vx >= virtual_width || vy < 0 || vy >= virtual_height) {
     log_error("bad pixel coord % %!\n", vx, vy);
     return;
   }
 
-  for sy: 0..scale-1 {
-    dest_y := (vy * scale + sy) * width;
-    for sx: 0..scale-1 {
-      dest_x := vx * scale + sx;
-      pixel_buffer[dest_y + dest_x] = color;
+  dest_y := vy * virtual_width;
+  virtual_buffer[dest_y + vx] = color;
+}
+
+draw :: (virtual_buffer: [..]u32, pixel_buffer: *u32 ){
+  for vy: 0..(virtual_height)-1 {
+    for sy: 0..scale-1{
+      dest_y := (vy  * scale * width) + (sy * width);
+      for vx: 0..(virtual_width)-1 {
+        for sx: 0..scale-1 {
+          dest_x := (vx * scale) + sx;
+          pixel_buffer[dest_y + dest_x] = virtual_buffer[(vy * virtual_width) + vx];
+        }
+      }
     }
   }
 }
@@ -79,8 +89,14 @@ screen_clamp :: (x: s32, y: s32) -> s32, s32{
   return clamp(x, 0, virtual_width - 1), clamp(y, 0, virtual_height - 1);
 }
 
-project :: (v: *Math.Vector3) -> s32, s32, s32 {
+project :: (v: Math.Vector3) -> s32, s32, s32 {
   return cast(s32) ((v.x + 1.0) * virtual_width / 2.0), cast(s32)((v.y + 1.0) * virtual_height / 2.0),  cast(s32)((v.z + 1.) *   255./2);
+}
+
+
+perspective :: (v: Math.Vector3) -> Math.Vector3 {
+  c := 3.;
+  return Math.multiply(v,  1 / (1-v.z/c));
 }
 
 scale_color :: (color: u32, scale: float64) -> u32 {
@@ -105,7 +121,7 @@ CYAN      :: 0x0000FFFF;
 RED       :: 0x00FF0000;
 YELLOW    :: 0x00FFC800;
 
-line :: (pixel_buffer: *u32, ax: s32, ay: s32, ac: u32, bx: s32, by: s32, bc: u32) {
+line :: (virtual_buffer: [..]u32, ax: s32, ay: s32, ac: u32, bx: s32, by: s32, bc: u32) {
   dx := Math.abs(ax - bx);
   dy := Math.abs(ay - by);
   steep := dy > dx;
@@ -136,28 +152,28 @@ line :: (pixel_buffer: *u32, ax: s32, ay: s32, ac: u32, bx: s32, by: s32, bc: u3
 
     if steep {
       // de-transpose
-      set(pixel_buffer, ry, xx rx, color);
+      set(virtual_buffer, ry, xx rx, color);
     } else  {
-      set(pixel_buffer, xx rx, ry, color);
+      set(virtual_buffer, xx rx, ry, color);
     }
   }
 }
 
 
-wireframe_triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, ac: u32, bx: s32, by: s32, bc: u32, cx: s32, cy: s32, cc: u32) {
+wireframe_triangle :: (virtual_buffer: [..]u32, ax: s32, ay: s32, ac: u32, bx: s32, by: s32, bc: u32, cx: s32, cy: s32, cc: u32) {
   ax, ay = screen_clamp(ax, ay);
   bx, by = screen_clamp(bx, by);
   cx, cy = screen_clamp(cx, cy);
 
-  line(pixel_buffer, ax, ay, ac, bx, by, bc);
-  line(pixel_buffer, bx, by, bc, cx, cy, cc);
-  line(pixel_buffer, cx, cy, cc, ax, ay, ac);
+  line(virtual_buffer, ax, ay, ac, bx, by, bc);
+  line(virtual_buffer, bx, by, bc, cx, cy, cc);
+  line(virtual_buffer, cx, cy, cc, ax, ay, ac);
 }
-triangle :: (pixel_buffer: *u32, p1: Math.Vector3, p2: Math.Vector3, p3: Math.Vector3, color: u32) {
-  triangle(pixel_buffer, xx p1.x,xx p1.y,xx p1.z,xx p2.x,xx p2.y,xx p2.z,xx p3.x,xx p3.y,xx p3.z, color);
+triangle :: (virtual_buffer: [..]u32, p1: Math.Vector3, p2: Math.Vector3, p3: Math.Vector3, color: u32) {
+  triangle(virtual_buffer, xx p1.x,xx p1.y,xx p1.z,xx p2.x,xx p2.y,xx p2.z,xx p3.x,xx p3.y,xx p3.z, color);
 }
 
-triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, az: s32, bx: s32, by: s32, bz: s32, cx: s32, cy: s32, cz: s32, color: u32) {
+triangle :: (virtual_buffer: [..]u32, ax: s32, ay: s32, az: s32, bx: s32, by: s32, bz: s32, cx: s32, cy: s32, cz: s32, color: u32) {
   signed_triangle_area :: (ax: s32, ay: s32, bx: s32, by: s32, cx: s32, cy: s32) -> float64 {
     return .5*((by-ay)*(bx+ax) + (cy-by)*(cx+bx) + (ay-cy)*(ax+cx));
   }
@@ -181,24 +197,24 @@ triangle :: (pixel_buffer: *u32, ax: s32, ay: s32, az: s32, bx: s32, by: s32, bz
 
       // color := cast(u32)(scale_color(az, alpha) + scale_color(bz, beta) + scale_color(cz, gamma));
       depth := cast(u32)(az * alpha + bz * beta + cz * gamma);
-      if depth < get_depth(depth_buffer, x, y) continue;
+      if depth < get_depth(depth_buffer, x, y) || depth > 255 continue;
       set_depth(depth_buffer, x, y, cast(u8) depth);
 
       if (DEBUG_DEPTH) {
         depth_color := depth << 16 + depth << 8 + depth;
-        set(pixel_buffer, x, y, depth_color);
+        set(virtual_buffer, x, y, depth_color);
       } else {
-        set(pixel_buffer, x, y, color);
+        set(virtual_buffer, x, y, color);
       }
 
     }
   }
 
   if BB_DEBUG {
-    line(pixel_buffer, bbminx, bbminy, WHITE, bbmaxx, bbminy, CYAN);
-    line(pixel_buffer, bbminx, bbminy, WHITE, bbminx, bbmaxy, CYAN);
-    line(pixel_buffer, bbminx, bbmaxy, WHITE, bbmaxx, bbmaxy, CYAN);
-    line(pixel_buffer, bbmaxx, bbminy, WHITE, bbmaxx, bbmaxy, CYAN);
+    line(virtual_buffer, bbminx, bbminy, WHITE, bbmaxx, bbminy, CYAN);
+    line(virtual_buffer, bbminx, bbminy, WHITE, bbminx, bbmaxy, CYAN);
+    line(virtual_buffer, bbminx, bbmaxy, WHITE, bbmaxx, bbmaxy, CYAN);
+    line(virtual_buffer, bbmaxx, bbminy, WHITE, bbmaxx, bbmaxy, CYAN);
   }
 }
 
@@ -216,6 +232,7 @@ main :: () {
   height = xx(virtual_height * scale);
   pixels_len = width * height;
   array_resize(*depth_buffer, virtual_width * virtual_height);
+  array_resize(*virtual_buffer, virtual_width * virtual_height);
 
 
   window = create_window(width, height, "[floating] Software Renderer");
@@ -223,7 +240,7 @@ main :: () {
   // also not directly editing the pixel buffer like it's a simple array, since
   // the color format can changeo or whatever.
   pixel_buffer := cast(*u32) create_pixel_buffer();
-  clear(pixel_buffer, BLACK);
+  clear(virtual_buffer, BLACK);
 
   model: Model;
   // load_obj_from_file("./obj/head/head.obj", *model);
@@ -236,7 +253,6 @@ main :: () {
 
   q: Math.Quaternion;
   Math.set_from_axis_and_angle(*q, .{0, 0, 1}, Math.PI / 30);
-  tmatrix := Math.make_translation_matrix4(Math.Vector3.{30, 30, 0});
 
   while !should_quit {
     #if ENABLE_PROFILING memory_visualizer_per_frame_update();
@@ -256,9 +272,10 @@ main :: () {
       }
     }
 
-    clear(pixel_buffer, BLACK);
+    clear(virtual_buffer, BLACK);
     clear(depth_buffer);
-    render_model(pixel_buffer, *model);
+    render_model(virtual_buffer, *model);
+    draw(virtual_buffer, pixel_buffer);
     // triangle(pixel_buffer, Math.translate(tmatrix, p3), GREEN);
 
     // Math.rotate(*p1, q);
@@ -266,7 +283,8 @@ main :: () {
     // Math.rotate(*p3, q);
 
     flush();
-     rotate_model_in_place(*model, Math.PI / 30);
+
+    // rotate_model_in_place(*model, Math.PI / 30);
 
     reset_temporary_storage();
     sleep_milliseconds(16); // Target ~60 fps

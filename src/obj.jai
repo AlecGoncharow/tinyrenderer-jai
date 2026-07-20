@@ -4,6 +4,7 @@
 Model :: struct {
   verts:  [..] Math.Vector3;
   faces:  [..] s32;
+  rotation: Math.Quaternion;
 }
 
 vert :: (m: *Model, face: s32, nvert: s32) -> *Math.Vector3 {
@@ -81,14 +82,14 @@ rotate_model_in_place :: (model: *Model, theta: float) {
   }
 }
 
-render_model :: (pixel_buffer: *u32, model: *Model) {
+render_model :: (virtual_buffer: [..]u32, model: *Model) {
   nfaces : s32 = cast(s32) model.faces.count / 3;
   for 0..nfaces-1{
-    ax, ay, az := project(vert(model, it, 0));
-    bx, by, bz := project(vert(model, it, 1));
-    cx, cy, cz := project(vert(model, it, 2));
+    ax, ay, az := project(perspective(Math.rotate(vert(model, it, 0).*, model.rotation)));
+    bx, by, bz := project(perspective(Math.rotate(vert(model, it, 1).*, model.rotation)));
+    cx, cy, cz := project(perspective(Math.rotate(vert(model, it, 2).*, model.rotation)));
 
 
-    triangle(pixel_buffer, ax, ay, az, bx, by, bz, cx, cy, cz, cast(u32) (Random.random_get() >> 32));
+    triangle(virtual_buffer, ax, ay, az, bx, by, bz, cx, cy, cz, cast(u32) (Random.random_get() >> 32));
   }
 }
